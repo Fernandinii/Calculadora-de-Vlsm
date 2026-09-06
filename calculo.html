@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora VLSM Binaria</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        h1 {
+            color: #007bff;
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 10px;
+        }
+        #app {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            max-width: 1200px;
+            margin: auto;
+        }
+        .input-section, .output-section {
+            margin-bottom: 25px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .input-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .req-list {
+            grid-column: 2;
+        }
+        .req-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+        .req-item input {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+        .binary-table th {
+            background-color: #6c757d;
+        }
+        .binary-table td:nth-child(1),
+        .binary-table td:nth-child(2) {
+            background-color: #e9ecef;
+            font-weight: bold;
+        }
+        .binary-address {
+            font-family: monospace;
+            font-size: 1.1em;
+            color: #d9534f;
+            font-weight: bold;
+        }
+        .binary-n { color: blue; }
+        .binary-h { color: red; }
+        .error { color: #d9534f; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <h1>Calculadora VLSM Binaria</h1>
+
+    <div class="input-section">
+        <div class="base-network">
+            <h2>1. Red Base</h2>
+            <label for="ip_base">IP Inicial / CIDR (ej: 192.168.0.0/24):</label>
+            <input type="text" id="ip_base" value="172.16.0.0/16" size="25"><br><br>
+            <button onclick="calculateVLSM()">Calcular VLSM</button>
+            <div id="error-message" class="error"></div>
+        </div>
+
+        <div class="req-list">
+            <h2>2. Requerimientos de Hosts (Grupos)</h2>
+            <div id="requirements-container">
+                <div class="req-item">
+                    <input type="text" value="Alumnos" placeholder="Nombre" class="req-name" size="10">
+                    <input type="number" value="500" placeholder="Hosts" class="req-hosts" min="1">
+                    <button onclick="removeRequirement(this)">-</button>
+                </div>
+                <div class="req-item">
+                    <input type="text" value="Maestros" placeholder="Nombre" class="req-name" size="10">
+                    <input type="number" value="100" placeholder="Hosts" class="req-hosts" min="1">
+                    <button onclick="removeRequirement(this)">-</button>
+                </div>
+                <div class="req-item">
+                    <input type="text" value="Admon" placeholder="Nombre" class="req-name" size="10">
+                    <input type="number" value="50" placeholder="Hosts" class="req-hosts" min="1">
+                    <button onclick="removeRequirement(this)">-</button>
+                </div>
+                <div class="req-item">
+                    <input type="text" value="RH" placeholder="Nombre" class="req-name" size="10">
+                    <input type="number" value="10" placeholder="Hosts" class="req-hosts" min="1">
+                    <button onclick="removeRequirement(this)">-</button>
+                </div>
+            </div>
+            <button onclick="addRequirement()">+ Agregar Grupo</button>
+        </div>
+    </div>
+
+    <div class="output-section" id="results">
+        </div>
+</div>
+
+<script>
+    // --- Funciones de Utilidad ---
+
+    /** Convierte una IP decimal a un array de octetos binarios. */
+    function ipToBinaryArray(ip) {
+        return ip.split('.').map(octet => 
+            parseInt(octet).toString(2).padStart(8, '0')
+        );
+    }
+
+    /** Convierte un array de octetos binarios a IP decimal. */
+    function binaryArrayToIp(binArray) {
+        return binArray.map(bin => parseInt(bin, 2)).join('.');
+    }
+
+    /** Suma un número a una IP (manejo de acarreo en octetos). */
+    function addNumberToIp(ip, num) {
+        const parts = ip.split('.').map(Number);
+        let carry = num;
+        for (let i = 3; i >= 0 && carry > 0; i--) {
+            parts[i] += carry;
+            carry = Math.floor(parts[i] / 256);
+            parts[i] %= 256;
+        }
+        return parts.join('.');
+    }
+
+    /** Determina la próxima dirección de red basándose en una IP y el CIDR. */
+    function getNextNetwork(ip, cidr) {
+        const hostsPerSubnet = Math.pow(2, 32 - cidr);
+        return addNumberToIp(ip, hostsPerSubnet);
+    }
+    
+    // --- Funciones de UI para Requerimientos ---
+
+    function addRequirement() {
+        const container = document.getElementById('requirements-container');
+        const newItem = document.createElement('div');
+        newItem.className = 'req-item';
+        newItem.innerHTML = `
+            <input type="text" value="" placeholder="Nombre" class="req-name" size="10">
+            <input type="number" value="" placeholder="Hosts" class="req-hosts" min="1">
+            <button onclick="removeRequirement(this)">-</button>
+        `;
+        container.appendChild(newItem);
+    }
+
+    function removeRequirement(button) {
+        button.parentNode.remove();
+    }
+
+    // --- Lógica Principal del VLSM ---
+
+// --- Lógica Principal del VLSM ---
+
+    function calculateVLSM() {
+        const ipBaseInput = document.getElementById('ip_base').value;
+        const errorDiv = document.getElementById('error-message');
+        errorDiv.textContent = '';
+        const resultsDiv = document.getElementById('results');
+        resultsDiv.innerHTML = '';
+
+        // 1. Parsear Red Base
+        const parts = ipBaseInput.split('/');
+        if (parts.length !== 2) {
+            errorDiv.textContent = 'Error: Formato IP/CIDR inválido. Use 192.168.0.0/24.';
+            return;
+        }
+        const [ipBase, cidrBaseStr] = parts;
+        const cidrBase = parseInt(cidrBaseStr);
+        if (isNaN(cidrBase) || cidrBase < 0 || cidrBase > 32) {
+            errorDiv.textContent = 'Error: CIDR inválido. Debe ser entre 0 y 32.';
+            return;
+        }
+
+        // 2. Parsear y Ordenar Requerimientos
+        const reqItems = Array.from(document.querySelectorAll('.req-item'));
+        let requirements = reqItems.map(item => ({
+            name: item.querySelector('.req-name').value || 'SR',
+            hosts: parseInt(item.querySelector('.req-hosts').value) || 1
+        })).filter(req => req.hosts > 0);
+
+        if (requirements.length === 0) {
+            errorDiv.textContent = 'Ingrese al menos un grupo de requerimiento de hosts.';
+            return;
+        }
+
+        // Ordenar de mayor a menor hosts (CRUCIAL para VLSM)
+        requirements.sort((a, b) => b.hosts - a.hosts);
+
+        // 3. Variables de Cálculo
+        let nextAvailableNetwork = ipBase;
+        const results = [];
+        const bitsAvailable = 32 - cidrBase;
+        // const baseBinary = ipToBinaryArray(ipBase); // No es necesario
+
+        // 4. Iterar y Calcular Subredes
+        requirements.forEach((req, index) => {
+            // Calcular bits de host (n) y nuevo CIDR
+            const n = Math.ceil(Math.log2(req.hosts + 2));
+            const newCidr = 32 - n;
+            // const bitsBorrowed = newCidr - cidrBase; // No es necesario
+
+            if (newCidr < cidrBase || n > bitsAvailable) {
+                errorDiv.textContent = `Error: El grupo ${req.name} requiere ${req.hosts} hosts y necesita una máscara /${newCidr}, lo cual excede el espacio de la red base /${cidrBase}.`;
+                return;
+            }
+
+            // Direcciones de Red y Broadcast
+            const network = nextAvailableNetwork;
+            const subnetSize = Math.pow(2, n);
+            const broadcast = addNumberToIp(network, subnetSize - 1); 
+            const firstHost = addNumberToIp(network, 1);
+            
+            // Lógica de Última IP Usable: BROADCAST - 1. ¡Esto ya maneja los casos .255!
+            const lastHost = addNumberToIp(broadcast, -1); 
+
+            // Preparar la próxima red disponible
+            nextAvailableNetwork = getNextNetwork(broadcast, 32);
+
+            // Generación del Patrón Binario (Método del Profesor)
+            const netBinArray = ipToBinaryArray(network);
+            const bcastBinArray = ipToBinaryArray(broadcast);
+            let binaryOutputDR = '';
+            let binaryOutputDB = '';
+            
+            // Construir la cadena binaria detallada
+            for (let i = 0; i < 4; i++) {
+                if (i * 8 < cidrBase) { // Parte de la red original
+                    // (La omitimos en la salida binaria para enfocarnos en los bits prestados/host)
+                    const fullOctet = netBinArray[i];
+                    binaryOutputDR += fullOctet.replace(/./g, '<span class="binary-n">$&</span>');
+                    binaryOutputDB += fullOctet.replace(/./g, '<span class="binary-n">$&</span>');
+                } else { // Parte de Host disponible para VLSM
+                    // Bits de la nueva máscara para este octeto
+                    const octetCidr = Math.min(8, newCidr - i * 8); 
+                    
+                    for (let j = 0; j < 8; j++) {
+                        const globalBitIndex = i * 8 + j;
+                        const isNetworkBit = globalBitIndex < newCidr;
+                        
+                        let binary_dr_char = netBinArray[i][j];
+                        
+                        if (isNetworkBit) {
+                            // Bits de Red (N)
+                            binaryOutputDR += `<span class="binary-n">${binary_dr_char}</span>`;
+                            binaryOutputDB += `<span class="binary-n">${binary_dr_char}</span>`;
+                        } else {
+                            // Bits de Host (H)
+                            binaryOutputDR += `<span class="binary-h">0</span>`; // Siempre 0 en DR para bits de host
+                            binaryOutputDB += `<span class="binary-h">1</span>`; // Siempre 1 en DB para bits de host
+                        }
+                    }
+                }
+                if (i < 3) {
+                    binaryOutputDR += '.';
+                    binaryOutputDB += '.';
+                }
+            }
+            
+            // --- CORRECCIÓN DE MÁSCARA DECIMAL ---
+            const binaryMask = Array(32).fill(0).map((_, i) => i < newCidr ? 1 : 0).join('');
+            
+            const maskDecimal = [0, 8, 16, 24].map(start => 
+                parseInt(binaryMask.substring(start, start + 8), 2)
+            ).join('.');
+            // ------------------------------------
+
+            results.push({
+                name: req.name,
+                hostsReq: req.hosts,
+                hostsDisp: subnetSize - 2,
+                cidr: newCidr,
+                mask: maskDecimal, 
+                network,
+                broadcast,
+                firstHost,
+                lastHost,
+                binaryDR: binaryOutputDR,
+                binaryDB: binaryOutputDB
+            });
+        });
+
+        // ... (rest of the function)
+
+        // 5. Renderizar Resultados
+        if (errorDiv.textContent) return; // Detener si hubo error en el cálculo
+
+        let html = '<h2>3. Tabla de Asignación Binaria (Método del Profesor)</h2>';
+        html += '<p>Los bits **rojos** son **H**ost, los bits **azules** son **N**etwork (prestados).</p>';
+        html += '<table class="binary-table"><thead><tr><th>SR</th><th>CIDR</th><th>Tipo</th><th colspan="4">Bits de Red y Host (Octetos 1-4)</th><th>Dirección Decimal</th></tr></thead><tbody>';
+
+        results.forEach((r, i) => {
+            html += `
+                <tr>
+                    <td rowspan="2">${r.name} (SR${i})</td>
+                    <td rowspan="2">/${r.cidr}</td>
+                    <td>DR</td>
+                    <td colspan="4" class="binary-address">${r.binaryDR}</td>
+                    <td>${r.network}</td>
+                </tr>
+                <tr>
+                    <td>DB</td>
+                    <td colspan="4" class="binary-address">${r.binaryDB}</td>
+                    <td>${r.broadcast}</td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+
+        html += '<br><h2>4. Resumen Final de Direccionamiento VLSM</h2>';
+        html += '<table><thead><tr><th>Grupo</th><th>Hosts Req.</th><th>Hosts Disp.</th><th>Máscara CIDR</th><th>Máscara Decimal</th><th>Red (Network)</th><th>Primer Host</th><th>Último Host</th><th>Broadcast</th></tr></thead><tbody>';
+
+        results.forEach(r => {
+            html += `
+                <tr>
+                    <td>${r.name}</td>
+                    <td>${r.hostsReq}</td>
+                    <td>${r.hostsDisp}</td>
+                    <td>/${r.cidr}</td>
+                    <td>${r.mask}</td>
+                    <td>${r.network}</td>
+                    <td>${r.firstHost}</td>
+                    <td>${r.lastHost}</td>
+                    <td>${r.broadcast}</td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        
+        resultsDiv.innerHTML = html;
+    }
+
+    // Calcular al cargar la página con el ejemplo
+    window.onload = calculateVLSM;
+</script>
+
+<footer style="text-align:center; padding:15px; margin-top:20px; background:#1a1a2e; color:#e0e0e0; font-size:0.85em; border-top:2px solid #0f3460;">
+    Creado por Diego Fernando Domínguez Sánchez &copy; 2025
+</footer>
+
+</body>
+</html>
